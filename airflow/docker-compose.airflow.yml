@@ -1,0 +1,85 @@
+﻿version: '3.9'
+services:
+  airflow-mysql:
+    image: mysql:8.0
+    container_name: airflow-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: airflow
+      MYSQL_USER: airflow
+      MYSQL_PASSWORD: airflowpass
+    ports:
+      - "3307:3306"
+    volumes:
+      - airflow_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uairflow", "-pairflowpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - data-platform
+
+  airflow-webserver:
+    image: apache/airflow:2.9.1-python3.9
+    container_name: airflow-webserver
+    depends_on:
+      airflow-mysql:
+        condition: service_healthy
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mysql+mysqldb://airflow:airflowpass@airflow-mysql:3306/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    command: |
+      bash -c "
+      echo 'Waiting for MySQL to be ready...'
+      until mysql -h airflow-mysql -u airflow -pairflowpass -e 'SELECT 1'; do
+        echo 'MySQL not ready yet. Waiting...'
+        sleep 5
+      done
+      echo 'MySQL is ready! Initializing Airflow...'
+      airflow db init
+      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || echo 'User already exists'
+      echo 'Starting Airflow webserver...'
+      exec airflow webserver
+      "
+    networks:
+      - data-platform
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.1-python3.9
+    container_name: airflow-scheduler
+    depends_on:
+      - airflow-webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mysql+mysqldb://airflow:airflowpass@airflow-mysql:3306/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    command: |
+      bash -c "
+      echo 'Waiting for webserver to be ready...'
+      until curl -f http://airflow-webserver:8080/health; do
+        echo 'Webserver not ready yet. Waiting...'
+        sleep 10
+      done
+      echo 'Starting Airflow scheduler...'
+      exec airflow scheduler
+      "
+    networks:
+      - data-platform
+
+volumes:
+  airflow_mysql_data:
+
+networks:
+  data-platform:
+    external: true
