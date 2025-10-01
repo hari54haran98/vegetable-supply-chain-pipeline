@@ -18,9 +18,7 @@ jobs:
         echo ""
         echo "To deploy manually:"
         echo "1. Update scripts/pipeline_metrics.py"
-        echo "2. Copy to: C:\data engineering\monitoring\scripts\"
+        echo "2. Copy to monitoring folder"
         echo "3. Run: docker restart pipeline-metrics"
         echo "4. Check: http://localhost:8000/metrics"
-        echo ""
-        echo "📊 Current deployment status: READY ✅"
 
