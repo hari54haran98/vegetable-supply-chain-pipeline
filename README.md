@@ -66,7 +66,16 @@ This project proves readiness for **real data engineering roles** by combining i
   - `prometheus.yml` → Prometheus config  
 
 ---
+## 📌 Skills Demonstrated
 
+- **Data Engineering**: Kafka (streaming), PostgreSQL (warehouse), Medallion Architecture (Bronze → Silver → Gold)
+- **Orchestration**: Apache Airflow DAGs for ETL automation
+- **Business Intelligence**: Streamlit dashboards for operational insights
+- **Monitoring**: Grafana + Prometheus for system + business metrics
+- **DevOps**: Docker, Docker Compose, GitHub Actions CI/CD
+- **Programming**: Python, SQL, PySpark
+- **Machine Learning**: Basic ML model integrated into Gold layer
+- 
 ## 📸 Screenshots
 
 ### Airflow – Orchestration
@@ -140,5 +149,6 @@ docker-compose -f docker-compose.streamlit.yml up -d
 
 # Start Monitoring Stack
 docker-compose -f docker-compose.monitoring.yml up -d
+
 
 
