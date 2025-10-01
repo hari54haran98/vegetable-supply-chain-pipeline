@@ -1,0 +1,15 @@
+﻿services:
+  streamlit:
+    image: python:3.9
+    container_name: streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./streamlit:/app
+    working_dir: /app
+    command: >
+      sh -c "
+      pip install -r requirements.txt &&
+      streamlit run vegetable_analytics.py --server.port=8501 --server.address=0.0.0.0
+      "
+    restart: unless-stopped
