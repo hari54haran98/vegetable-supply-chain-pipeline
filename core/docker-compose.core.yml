@@ -1,0 +1,182 @@
+version: "3.9"
+
+services:
+  # ---------- MySQL (Source DB) ----------
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: unless-stopped
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --bind-address=0.0.0.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: data_engineering
+      MYSQL_USER: de_user
+      MYSQL_PASSWORD: de_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - data-platform
+
+  # ---------- Redpanda (Kafka replacement) ----------
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.1.8
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9093
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,OUTSIDE://localhost:9093
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+      - "9644:9644"
+    networks:
+      - data-platform
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: redpanda
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: redpanda:9092
+    ports:
+      - "8090:8080"
+    depends_on:
+      - redpanda
+    networks:
+      - data-platform
+
+  # ---------- MinIO (Data Lake for Delta/Iceberg) ----------
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DOMAIN: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - data-platform
+
+  # ---------- Warehouse (Fallback DB) ----------
+  warehouse-db:
+    image: postgres:15
+    container_name: warehouse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: warehouse
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data-platform
+
+  # ---------- Spark Master ----------
+  spark-master:
+    image: bitnami/spark:3.4.1
+    container_name: spark-master
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+      SPARK_MASTER_PORT: 7077
+      SPARK_MASTER_WEBUI_PORT: 8080
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin123"
+      SPARK_EXTRA_CLASSPATH: "/opt/spark/jars/*"
+    ports:
+      - "7077:7077"
+      - "8080:8080"
+    volumes:
+      - ./jars:/opt/spark/jars
+      - ./spark-conf:/opt/spark/conf
+    depends_on:
+      - minio
+      - warehouse-db
+    networks:
+      - data-platform
+
+  spark-worker:
+    image: bitnami/spark:3.4.1
+    container_name: spark-worker
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin123"
+      SPARK_EXTRA_CLASSPATH: "/opt/spark/jars/*"
+    volumes:
+      - ./jars:/opt/spark/jars
+      - ./spark-conf:/opt/spark/conf
+    depends_on:
+      - spark-master
+    networks:
+      - data-platform
+
+  # ---------- Jupyter (Testing Spark + Delta/Iceberg) ----------
+  jupyter:
+    image: jupyter/all-spark-notebook
+    container_name: jupyter
+    environment:
+      JUPYTER_TOKEN: "letmein"
+      SPARK_MASTER: "spark://spark-master:7077"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin123"
+    ports:
+      - "8889:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/work/data
+      - ./jars:/opt/spark/jars
+      - ./spark-conf:/home/jovyan/spark-conf
+    depends_on:
+      - spark-master
+      - minio
+      - warehouse-db
+      - redpanda
+    networks:
+      - data-platform
+
+  # ---------- Tools ----------
+  tools:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile
+    image: data-engineering-tools
+    container_name: tools
+    depends_on:
+      - minio
+    command: bash -c "echo '?? Tools container ready' && tail -f /dev/null"
+    networks:
+      - data-platform
+
+volumes:
+  mysql_data:
+  minio_data:
+  postgres_data:
+
+networks:
+  data-platform:
+    external: true
+    name: data-platform
+
